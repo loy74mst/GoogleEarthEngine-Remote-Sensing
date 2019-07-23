@@ -1,0 +1,45 @@
+/**
+ * Function to mask clouds based on the pixel_qa band of Landsat 8 SR data.
+ * @param {ee.Image} image input Landsat 8 SR image
+ * @return {ee.Image} cloudmasked Landsat 8 image
+ */
+function maskL8sr(image) {
+  // Bits 3 and 5 are cloud shadow and cloud, respectively.
+  var cloudShadowBitMask = (1 << 3);
+  var cloudsBitMask = (1 << 5);
+  // Get the pixel QA band.
+  var qa = image.select('pixel_qa');
+  // Both flags should be set to zero, indicating clear conditions.
+  var mask = qa.bitwiseAnd(cloudShadowBitMask).eq(0)
+                 .and(qa.bitwiseAnd(cloudsBitMask).eq(0));
+  return image.updateMask(mask);
+}
+
+var dataset = ee.ImageCollection('LANDSAT/LC08/C01/T1_SR')
+                  .filterDate('2015-10-01', '2015-10-31')
+                  .map(maskL8sr);
+
+var median = dataset.reduce(ee.Reducer.median());
+
+var ndwi = median.expression(
+'(NIR - SWIR) / (NIR + SWIR)' , {
+'NIR' : median.select('B5_median'),
+'SWIR' : median.select('B6_median')
+} ) ;
+
+var visParams = {
+  min: -1,
+  max: 1,
+  gamma: 1.4,
+};
+
+Map.addLayer(ndwi, visParams, "ndwi");
+
+//Export image to Drive
+Export.image.toDrive({
+    image: ndwi,
+    description: 'NDWI',
+    scale: 30,
+    region: geometry,
+    maxPixels: 1e10
+})
