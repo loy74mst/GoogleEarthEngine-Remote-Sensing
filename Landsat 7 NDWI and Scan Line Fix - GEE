@@ -1,0 +1,110 @@
+var geometry = Map.getBounds(true)
+var bands = ['NDWI']
+var percentile = 30
+var imageParams = {min: 0.0, max: 0.3 }
+var landsat7_NDWI = ee.ImageCollection("LANDSAT/LE07/C01/T1_32DAY_NDWI").select(['NDWI']);
+var landsat5_NDWI = ee.ImageCollection('LANDSAT/LT05/C01/T1_32DAY_NDWI').select(['NDWI']);
+
+var image = landsat7_NDWI
+.filterBounds(geometry)
+.filterDate('2012-04-01', '2012-04-30')
+.reduce(ee.Reducer.percentile([percentile]))
+.rename(bands)
+
+//image = image.multiply(0.0001)
+
+.reduce(ee.Reducer.percentile([percentile]))
+.rename(bands)
+
+// remove artifacts at the edges
+image = image.updateMask(image.select(0).mask().focal_min(90, 'circle', 'meters'))
+
+Map.addLayer(image, imageParams, "image");
+
+var MIN_SCALE = 1;
+var MAX_SCALE = 3;
+var MIN_NEIGHBORS = 144;
+
+/* Apply the USGS L7 Phase-2 Gap filling protocol, using a single kernel size. */
+var GapFill = function(src, fill, kernelSize) {
+  var kernel = ee.Kernel.square(kernelSize * 30, "meters", false)
+  
+  // Find the pixels common to both scenes.
+  var common = src.mask().and(fill.mask())
+  var fc = fill.updateMask(common)
+  var sc = src.updateMask(common)
+
+  // Find the primary scaling factors with a regression.
+  // Interleave the bands for the regression.  This assumes the bands have the same names.
+  var regress = fc.addBands(sc)
+  regress = regress.select(regress.bandNames().sort())
+  var fit = regress.reduceNeighborhood(ee.Reducer.linearFit().forEach(src.bandNames()),  kernel, null, false)
+  var offset = fit.select(".*_offset")
+  var scale = fit.select(".*_scale")
+
+  // Find the secondary scaling factors using just means and stddev
+  var reducer = ee.Reducer.mean().combine(ee.Reducer.stdDev(), null, true)
+  var src_stats = src.reduceNeighborhood(reducer, kernel, null, false)
+  var fill_stats = fill.reduceNeighborhood(reducer, kernel, null, false)
+  var scale2 = src_stats.select(".*stdDev").divide(fill_stats.select(".*stdDev"))
+  var offset2 = src_stats.select(".*mean").subtract(fill_stats.select(".*mean").multiply(scale2))
+
+  var invalid = scale.lt(MIN_SCALE).or(scale.gt(MAX_SCALE))
+  scale = scale.where(invalid, scale2)
+  offset = offset.where(invalid, offset2)
+
+  // When all else fails, just use the difference of means as an offset.  
+  var invalid2 = scale.lt(MIN_SCALE).or(scale.gt(MAX_SCALE))
+  scale = scale.where(invalid2, 1)
+  offset = offset.where(invalid2, src_stats.select(".*mean").subtract(fill_stats.select(".*mean")))
+
+  // Apply the scaling and mask off pixels that didn't have enough neighbors.
+  var count = common.reduceNeighborhood(ee.Reducer.count(), kernel, null, true, "boxcar")
+  var scaled = fill.multiply(scale).add(offset)
+      .updateMask(count.gte(MIN_NEIGHBORS))
+
+  return src.unmask(scaled, true)
+}
+
+var fill = landsat5_NDWI
+.filterBounds(geometry)
+.filterDate('2012-04-01', '2012-04-30')
+.median()
+.reduce(ee.Reducer.percentile([percentile]))
+.rename(bands)
+
+
+fill = fill.multiply(0.01)
+
+Map.addLayer(fill, imageParams, "image (fill)", false);
+
+var result = GapFill(image, fill, 10);
+Map.addLayer(result, imageParams, "image (filled)");
+
+
+//Makes a single average image of all the datasets, filling in the gaps of the cloud mask
+var reduced = result.reduce(ee.Reducer.median());
+Map.addLayer(reduced, imageParams, 'reduced');
+
+var visParams = {
+  bands: ['NDWI'],
+  min: 0,
+  max: 3000,
+  gamma: 1.4,
+};
+
+
+//Convert data type from float to int so ArcMap tools will work with it
+//var toInts = reduced.toInt();
+//Map.addLayer(toInts, imageParams, "toInts");
+
+
+//Export image to Drive
+Export.image.toDrive({
+    image: reduced,
+    description: 'Apr2012L7',
+    scale: 30,
+    region: geometry,
+    maxPixels: 1e10
+
+})
