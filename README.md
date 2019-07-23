@@ -1,2 +1,2 @@
 # recipes
-Google Earth Engine and R codes for cooking data
+Consolidated ways to cook code in Google Earth Engine and R
