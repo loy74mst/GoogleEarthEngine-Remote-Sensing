@@ -1,0 +1,28 @@
+//load in dataset
+var dataset = ee.ImageCollection("OREGONSTATE/PRISM/AN81m")
+                  .filter(ee.Filter.date('2015-10-01', '2015-10-31'))
+                  .map(function(image) {return image.clip(geometry)});
+                  
+var precipitation = dataset.select('ppt');
+
+//reduces collection to a single image based on median
+var median = precipitation.reduce(ee.Reducer.median())
+
+
+var precipitationVis = {
+  min: 0.1,
+  max: 1.2,
+  palette: ['blue', 'purple', 'cyan', 'green', 'yellow', 'red'],
+};
+
+Map.addLayer(median, precipitationVis, 'Precipitation');
+
+//Export image to Drive
+Export.image.toDrive({
+    image: median,
+    description: '15Precip',
+    scale: 30,
+    region: geometry,
+    maxPixels: 1e10
+});    
+    
