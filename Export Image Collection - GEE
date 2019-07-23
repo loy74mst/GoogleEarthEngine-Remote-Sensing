@@ -1,0 +1,20 @@
+//select dataset with filters
+var dataset = ee.ImageCollection('MODIS/006/MOD16A2')
+                  .filter(ee.Filter.date('2015-10-01', '2015-10-31'))
+                  .map(function(image) {return image.clip(geometry)});
+                  
+//turn image collection into a single image based on median (can also use min, max, mean, etc.)                  
+var median = evapotranspiration.reduce(ee.Reducer.median())
+
+//visualize result
+Map.addLayer(median, evapotranspirationVis, 'Evapotranspiration');
+
+//Export image to Drive
+Export.image.toDrive({
+    image: median,
+    description: 'MODISET',
+    scale: 30,
+    region: geometry,
+    maxPixels: 1e10
+});    
+    
