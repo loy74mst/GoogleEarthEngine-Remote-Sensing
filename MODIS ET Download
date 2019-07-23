@@ -1,0 +1,31 @@
+//import image collection
+var dataset = ee.ImageCollection('MODIS/006/MOD16A2')
+                  .filter(ee.Filter.date('2015-10-01', '2015-10-31'))
+                  .map(function(image) {return image.clip(geometry)});
+var evapotranspiration = dataset.select('ET');
+
+//use median as a reducer to select a single image for the time frame    
+var median = evapotranspiration.reduce(ee.Reducer.median())
+
+
+
+var evapotranspirationVis = {
+  min: 0.0,
+  max: 300.0,
+  palette: [
+    'ffffff', 'fcd163', '99b718', '66a000', '3e8601', '207401', '056201',
+    '004c00', '011301'
+  ],
+};
+
+Map.addLayer(median, evapotranspirationVis, 'Evapotranspiration');
+
+//Export image to Drive
+Export.image.toDrive({
+    image: median,
+    description: '15ET',
+    scale: 30,
+    region: geometry,
+    maxPixels: 1e10
+});    
+    
